@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rozúčtování telefonních paušálů T-Mobile</title>
+
+  <!-- Tailwind CSS & FontAwesome -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- PDF.js pro čtení PDF souborů v prohlížeči -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
+
+  <!-- Lokální generátor QR kódů -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: block !important; }
+      body { background: white; color: black; }
+      .shadow-xl, .shadow-md, .shadow-sm { box-shadow: none !important; }
+      .border { border-color: #ddd !important; }
+    }
+    
+    .tmobile-gradient {
+      background: linear-gradient(135deg, #E20074 0%, #A10053 100%);
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- TOP HEADER -->
+  <header class="tmobile-gradient text-white shadow-lg no-print">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="bg-white/20 p-2.5 rounded-xl backdrop-blur-md">
+          <i class="fa-solid fa-file-invoice-dollar text-2xl text-white"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-tight">Rozúčtování telefonních paušálů</h1>
+          <p class="text-xs text-rose-100 opacity-90" id="headerInvoiceMeta">Zatím není načteno žádné vyúčtování</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3 flex-wrap gap-y-2">
+        <button onclick="openModal('myAccountModal')" class="bg-white/10 hover:bg-white/20 text-white font-medium px-3.5 py-2 rounded-lg text-sm transition flex items-center gap-2 backdrop-blur-md border border-white/20" title="Nastavení mého bankovního účtu">
+          <i class="fa-solid fa-building-columns"></i>
+          <span>Můj účet: <strong id="headerAccountDisplay">2800647194/2010</strong></span>
+        </button>
+        <button onclick="openModal('importModal')" class="bg-white text-rose-700 hover:bg-rose-50 font-semibold px-4 py-2 rounded-lg text-sm shadow-sm transition flex items-center gap-2">
+          <i class="fa-solid fa-file-arrow-up"></i>
+          <span>Nahrát / Vložit PDF</span>
+        </button>
+        <button id="shareBtn" onclick="generateShareLink()" class="bg-white/10 hover:bg-white/20 text-white font-medium px-3.5 py-2 rounded-lg text-sm transition flex items-center gap-2 backdrop-blur-md border border-white/20" title="Vytvořit trvalý odkaz ke sdílení">
+          <i class="fa-solid fa-share-nodes"></i>
+          <span>Sdílet odkaz</span>
+        </button>
+        <button onclick="clearInvoiceData()" title="Vyčistit data / Nové vyúčtování" class="bg-white/10 hover:bg-white/20 text-white p-2.5 rounded-lg text-sm transition border border-white/20">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>
+        <button onclick="window.print()" class="bg-white/10 hover:bg-white/20 text-white font-medium px-3.5 py-2 rounded-lg text-sm transition flex items-center gap-2 backdrop-blur-md border border-white/20">
+          <i class="fa-solid fa-print"></i>
+          <span>Tisk</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT CONTAINER -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-8">
+
+    <!-- TOP KPI SUMMARY CARDS -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 no-print">
+      <!-- Celkem s DPH -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-1.5 h-full bg-rose-600"></div>
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Celkem k úhradě s DPH</p>
+            <h3 class="text-2xl font-bold text-slate-900 mt-1" id="kpiTotalWithVat">0,00 Kč</h3>
+            <p class="text-xs text-slate-500 mt-1">Částka k úhradě operátorovi</p>
+          </div>
+          <div class="bg-rose-50 text-rose-600 p-3 rounded-xl">
+            <i class="fa-solid fa-receipt text-xl"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Základ bez DPH -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Základ bez DPH</p>
+            <h3 class="text-2xl font-bold text-slate-800 mt-1" id="kpiTotalBase">0,00 Kč</h3>
+            <p class="text-xs text-slate-500 mt-1">Součet služeb všech SIM</p>
+          </div>
+          <div class="bg-slate-100 text-slate-600 p-3 rounded-xl">
+            <i class="fa-solid fa-calculator text-xl"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- DPH 21% -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">DPH (21 %)</p>
+            <h3 class="text-2xl font-bold text-slate-800 mt-1" id="kpiTotalVat">0,00 Kč</h3>
+            <p class="text-xs text-slate-500 mt-1">Rozpočítaná daň</p>
+          </div>
+          <div class="bg-blue-50 text-blue-600 p-3 rounded-xl">
+            <i class="fa-solid fa-percent text-xl"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Účastníci -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Aktivní účastníci</p>
+            <h3 class="text-2xl font-bold text-slate-800 mt-1" id="kpiParticipantCount">0 čísel</h3>
+            <p class="text-xs text-slate-500 mt-1">Připraveno k rozúčtování</p>
+          </div>
+          <div class="bg-emerald-50 text-emerald-600 p-3 rounded-xl">
+            <i class="fa-solid fa-users text-xl"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHARTS & SUMMARY BREAKDOWN -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 no-print">
+      <!-- Donut Chart -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+        <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+          <i class="fa-solid fa-chart-pie text-rose-600"></i> Podíl účastníků na celkové fakturaci
+        </h2>
+        <div class="relative h-52 flex items-center justify-center">
+          <canvas id="participantsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Bar Chart -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm lg:col-span-2 flex flex-col justify-between">
+        <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+          <i class="fa-solid fa-chart-column text-rose-600"></i> Struktura nákladů podle typu služby
+        </h2>
+        <div class="relative h-52">
+          <canvas id="categoriesChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEARCH & CONTROLS -->
+    <div class="flex flex-wrap justify-between items-center gap-4 no-print">
+      <div class="relative flex-1 min-w-[260px] max-w-md">
+        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+        <input type="text" id="searchInput" oninput="renderParticipants()" placeholder="Hledat číslo nebo jméno..." class="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 transition shadow-sm">
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <button onclick="openModal('addParticipantModal')" class="bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-xl text-sm font-medium transition flex items-center gap-2 shadow-sm">
+          <i class="fa-solid fa-plus text-xs"></i>
+          <span>Přidat číslo ručně</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- CARDS GRID FOR PARTICIPANTS -->
+    <div id="participantsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- Dynamic rendering via JS -->
+    </div>
+
+    <!-- PRINT TABLE (Only visible when printing) -->
+    <div class="hidden print-only space-y-6">
+      <div class="border-b border-slate-300 pb-4">
+        <h1 class="text-2xl font-bold text-slate-900">Vyúčtování telefonních služeb - Rozúčtování</h1>
+        <p class="text-sm text-slate-600 mt-1">Účet pro úhradu od účastníků: <strong id="printAccount">2800647194 / 2010</strong></p>
+      </div>
+
+      <table class="w-full text-left text-xs border-collapse">
+        <thead>
+          <tr class="border-b-2 border-slate-800 text-slate-900">
+            <th class="py-2">Telefonní číslo</th>
+            <th class="py-2">Uživatel</th>
+            <th class="py-2 text-right">Paušál</th>
+            <th class="py-2 text-right">Volání</th>
+            <th class="py-2 text-right">SMS</th>
+            <th class="py-2 text-right">Data / Ostatní</th>
+            <th class="py-2 text-right">Základ bez DPH</th>
+            <th class="py-2 text-right">DPH 21%</th>
+            <th class="py-2 text-right font-bold">K ÚHRADĚ</th>
+          </tr>
+        </thead>
+        <tbody id="printTableBody" class="divide-y divide-slate-200">
+          <!-- Populated dynamically -->
+        </tbody>
+        <tfoot class="border-t-2 border-slate-800 font-bold">
+          <tr id="printTableFoot">
+            <!-- Populated dynamically -->
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+  </main>
+
+  <!-- MODAL: MY ACCOUNT SETTINGS -->
+  <div id="myAccountModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+        <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+          <i class="fa-solid fa-building-columns text-rose-600"></i> Můj bankovní účet pro příjem plateb
+        </h3>
+        <button onclick="closeModal('myAccountModal')" class="text-slate-400 hover:text-slate-600 p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <form onsubmit="saveMyAccount(event)" class="p-6 space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Číslo bankovního účtu (vč. předčíslí)</label>
+          <input type="text" id="inputMyAccNum" required value="2800647194" placeholder="např. 2800647194" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Kód banky</label>
+          <input type="text" id="inputMyBankCode" required value="2010" placeholder="např. 2010" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+        </div>
+        <p class="text-xs text-slate-500">Na tento účet budou účastníci posílat své částky. QR kódy se vygenerují automaticky s tímto účtem.</p>
+
+        <div class="pt-2 flex justify-end space-x-2">
+          <button type="button" onclick="closeModal('myAccountModal')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-xl transition">Zrušit</button>
+          <button type="submit" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm rounded-xl transition">Uložit účet</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: IMPORT PDF / PASTE TEXT -->
+  <div id="importModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+        <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+          <i class="fa-solid fa-file-pdf text-rose-600"></i> Načíst vyúčtování z PDF nebo textu
+        </h3>
+        <button onclick="closeModal('importModal')" class="text-slate-400 hover:text-slate-600 p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="p-6 overflow-y-auto space-y-6">
+        <!-- TABS -->
+        <div class="flex border-b border-slate-200">
+          <button id="tabPdfBtn" onclick="switchImportTab('pdf')" class="py-2.5 px-4 font-semibold text-sm border-b-2 border-rose-600 text-rose-600 transition">
+            <i class="fa-solid fa-upload mr-1.5"></i> Nahrát PDF soubor
+          </button>
+          <button id="tabTextBtn" onclick="switchImportTab('text')" class="py-2.5 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition">
+            <i class="fa-solid fa-paste mr-1.5"></i> Vložit text z PDF
+          </button>
+        </div>
+
+        <!-- TAB CONTENT: FILE UPLOAD -->
+        <div id="importPdfSection" class="space-y-4">
+          <div class="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center hover:border-rose-400 transition bg-slate-50/50 flex flex-col items-center justify-center cursor-pointer" onclick="document.getElementById('pdfFileInput').click()">
+            <input type="file" id="pdfFileInput" accept=".pdf" class="hidden" onchange="handleFileSelect(event)">
+            <div class="w-14 h-14 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center text-2xl mb-3">
+              <i class="fa-solid fa-file-pdf"></i>
+            </div>
+            <p class="text-sm font-semibold text-slate-700">Klikněte pro výběr PDF vyúčtování T-Mobile</p>
+            <p class="text-xs text-slate-500 mt-1">Zpracování probíhá 100% lokálně ve vašem prohlížeči</p>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT: TEXT PASTE -->
+        <div id="importTextSection" class="space-y-4 hidden">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Vložte zkopírovaný text z PDF faktury (Ctrl+A / Ctrl+C v Acrobat Readeru):</label>
+            <textarea id="pasteTextArea" rows="8" class="w-full p-3 border border-slate-200 rounded-xl text-xs font-mono focus:ring-2 focus:ring-rose-500 focus:outline-none" placeholder="Sem vložte text z PDF vyúčtování..."></textarea>
+          </div>
+          <button onclick="processPastedText()" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-semibold py-2.5 rounded-xl text-sm transition shadow-sm">
+            Zpracovat vložený text
+          </button>
+        </div>
+
+        <!-- STATUS / LOG -->
+        <div id="importStatus" class="hidden p-4 rounded-xl text-xs font-mono space-y-1 bg-slate-900 text-slate-200 max-h-40 overflow-y-auto">
+          <!-- Log lines -->
+        </div>
+      </div>
+
+      <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+        <button onclick="closeModal('importModal')" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-sm rounded-xl transition">
+          Zavřít
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT PARTICIPANT -->
+  <div id="addParticipantModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+        <h3 id="modalParticipantTitle" class="font-bold text-slate-800 text-base">Přidat účastníka</h3>
+        <button onclick="closeModal('addParticipantModal')" class="text-slate-400 hover:text-slate-600 p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <form onsubmit="saveParticipant(event)" class="p-6 space-y-4">
+        <input type="hidden" id="editPhoneOriginal">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Telefonní číslo</label>
+          <input type="text" id="inputPhone" required placeholder="např. 604123456" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Jméno / Označení uživatele</label>
+          <input type="text" id="inputUserName" required placeholder="např. Jan Novák" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Paušál (bez DPH)</label>
+            <input type="number" step="0.01" id="inputPausal" value="0.00" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Volání (bez DPH)</label>
+            <input type="number" step="0.01" id="inputVolani" value="0.00" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">SMS (bez DPH)</label>
+            <input type="number" step="0.01" id="inputSMS" value="0.00" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Data / Ostatní (bez DPH)</label>
+            <input type="number" step="0.01" id="inputData" value="0.00" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="pt-2 flex justify-end space-x-2">
+          <button type="button" onclick="closeModal('addParticipantModal')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-xl transition">Zrušit</button>
+          <button type="submit" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm rounded-xl transition">Uložit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: QR PAYMENT DISPLAY -->
+  <div id="qrModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <h3 class="font-bold text-slate-800 text-base" id="qrModalTitle">QR Platba</h3>
+        <button onclick="closeModal('qrModal')" class="text-slate-400 hover:text-slate-600">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      
+      <!-- Kontejner pro Canvas generovaný lokálně -->
+      <div class="bg-slate-50 p-4 rounded-2xl flex justify-center items-center" id="qrContainer">
+        <!-- Canvas/Image rendered here locally -->
+      </div>
+
+      <div class="text-xs text-slate-600 space-y-1 bg-slate-50 p-3 rounded-xl text-left font-mono">
+        <div>Příjemce (Váš účet): <strong id="qrAccount" class="text-slate-900">2800647194 / 2010</strong></div>
+        <div>Částka s DPH: <strong id="qrAmount" class="text-rose-600">0,00 Kč</strong></div>
+        <div>Zpráva pro příjemce: <span id="qrMsg">-</span></div>
+      </div>
+
+      <button id="copyPaymentBtn" onclick="copyPaymentInfo()" class="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2">
+        <i class="fa-solid fa-copy"></i>
+        <span>Kopírovat podklady i QR kód do schránky</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    const DEFAULT_MY_ACCOUNT = {
+      number: "2800647194",
+      bankCode: "2010"
+    };
+
+    const EMPTY_INVOICE_DATA = {
+      myAccount: { ...DEFAULT_MY_ACCOUNT },
+      meta: {
+        docNumber: "",
+        period: "",
+        dueDate: "",
+        totalWithVat: 0
+      },
+      participants: []
+    };
+
+    let invoiceData = JSON.parse(localStorage.getItem('tm_invoice_data')) || JSON.parse(JSON.stringify(EMPTY_INVOICE_DATA));
+    if (!invoiceData.myAccount) {
+      invoiceData.myAccount = { ...DEFAULT_MY_ACCOUNT };
+    }
+
+    let participantsChart = null;
+    let categoriesChart = null;
+    let currentActivePaymentCopy = "";
+
+    const COLORS = ['#E20074', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4'];
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      // Kontrola URL parametru ?id= pro načtení sdíleného vyúčtování
+      const urlParams = new URLSearchParams(window.location.search);
+      const shareId = urlParams.get('id');
+
+      if (shareId) {
+        try {
+          const response = await fetch(`share.php?id=${encodeURIComponent(shareId)}`);
+          if (response.ok) {
+            const remoteData = await response.json();
+            if (remoteData && remoteData.participants) {
+              invoiceData = remoteData;
+              saveState();
+            }
+          } else {
+            alert('Požadované sdílené vyúčtování nebylo na serveru nalezeno.');
+          }
+        } catch (e) {
+          console.error('Chyba při načítání dat ze serveru:', e);
+        }
+      }
+
+      renderAll();
+      if (!invoiceData.participants || invoiceData.participants.length === 0) {
+        openModal('importModal');
+      }
+    });
+
+    function saveState() {
+      localStorage.setItem('tm_invoice_data', JSON.stringify(invoiceData));
+    }
+
+    function clearInvoiceData() {
+      if (confirm('Chcete vyčistit aktuální data a připravit aplikaci na načtení nové faktury?')) {
+        const savedAccount = invoiceData.myAccount || { ...DEFAULT_MY_ACCOUNT };
+        invoiceData = JSON.parse(JSON.stringify(EMPTY_INVOICE_DATA));
+        invoiceData.myAccount = savedAccount;
+        saveState();
+
+        // Odstraní ?id= z adresního řádku
+        if (window.history.pushState) {
+          const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+          window.history.pushState({path: newUrl}, '', newUrl);
+        }
+
+        renderAll();
+        openModal('importModal');
+      }
+    }
+
+    // Funkce pro odeslání dat na server a získání sdíleného odkazu
+    async function generateShareLink() {
+      if (!invoiceData.participants || invoiceData.participants.length === 0) {
+        alert('Není načteno žádné vyúčtování ke sdílení.');
+        return;
+      }
+
+      const shareBtn = document.getElementById('shareBtn');
+      const originalText = shareBtn.innerHTML;
+      shareBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Ukládám...</span>';
+
+      try {
+        const res = await fetch('share.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(invoiceData)
+        });
+
+        const resData = await res.json();
+        if (resData.status === 'ok' && resData.id) {
+          const shareUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?id=${resData.id}`;
+          
+          await navigator.clipboard.writeText(shareUrl);
+          alert(`Odkaz na toto vyúčtování byl úspěšně vytvořen a zkopírován do schránky:\n\n${shareUrl}`);
+        } else {
+          alert('Chyba při vytváření odkazu: ' + (resData.message || 'Neznámá chyby'));
+        }
+      } catch (err) {
+        console.error('Chyba při komunikaci s PHP API:', err);
+        alert('Nepodařilo se připojit k PHP skriptu share.php.');
+      } finally {
+        shareBtn.innerHTML = originalText;
+      }
+    }
+
+    function calcParticipantTotals(p) {
+      let pausal = 0, volani = 0, sms = 0, data = 0, ostatni = 0;
+      
+      p.items.forEach(item => {
+        const val = parseFloat(item.amount) || 0;
+        if (item.cat === 'pausal') pausal += val;
+        else if (item.cat === 'volani') volani += val;
+        else if (item.cat === 'sms') sms += val;
+        else if (item.cat === 'data') data += val;
+        else ostatni += val;
+      });
+
+      const base = Math.round((pausal + volani + sms + data + ostatni) * 100) / 100;
+      const vat = Math.round(base * 0.21 * 100) / 100;
+      const totalWithVat = Math.round((base + vat) * 100) / 100;
+
+      return { pausal, volani, sms, data, ostatni, base, vat, totalWithVat };
+    }
+
+    function renderAll() {
+      renderHeaderMeta();
+      renderKPIs();
+      renderParticipants();
+      renderCharts();
+      renderPrintTable();
+    }
+
+    function renderHeaderMeta() {
+      const m = invoiceData.meta;
+      const acc = invoiceData.myAccount || DEFAULT_MY_ACCOUNT;
+      
+      if (m.docNumber || m.period) {
+        document.getElementById('headerInvoiceMeta').innerText = 
+          `Vyúčtování č. ${m.docNumber || 'N/A'} (Období ${m.period || ''})`;
+      } else {
+        document.getElementById('headerInvoiceMeta').innerText = "Zatím není načteno žádné vyúčtování";
+      }
+
+      document.getElementById('headerAccountDisplay').innerText = `${acc.number}/${acc.bankCode}`;
+      document.getElementById('printAccount').innerText = `${acc.number} / ${acc.bankCode}`;
+    }
+
+    function renderKPIs() {
+      let grandBase = 0;
+      let grandVat = 0;
+      let grandTotalWithVat = 0;
+
+      invoiceData.participants.forEach(p => {
+        const t = calcParticipantTotals(p);
+        grandBase += t.base;
+        grandVat += t.vat;
+        grandTotalWithVat += t.totalWithVat;
+      });
+
+      document.getElementById('kpiTotalBase').innerText = grandBase.toFixed(2).replace('.', ',') + ' Kč';
+      document.getElementById('kpiTotalVat').innerText = grandVat.toFixed(2).replace('.', ',') + ' Kč';
+      document.getElementById('kpiTotalWithVat').innerText = grandTotalWithVat.toFixed(2).replace('.', ',') + ' Kč';
+      document.getElementById('kpiParticipantCount').innerText = `${invoiceData.participants.length} čísel`;
+    }
+
+    function renderParticipants() {
+      const grid = document.getElementById('participantsGrid');
+      const search = (document.getElementById('searchInput').value || '').toLowerCase();
+      grid.innerHTML = '';
+
+      if (invoiceData.participants.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-1 md:col-span-2 bg-white rounded-2xl p-12 text-center border border-dashed border-slate-300 shadow-sm flex flex-col items-center justify-center space-y-4">
+            <div class="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center text-3xl">
+              <i class="fa-solid fa-file-invoice"></i>
+            </div>
+            <div class="max-w-md">
+              <h3 class="text-lg font-bold text-slate-800">Zatím není načteno žádné vyúčtování</h3>
+              <p class="text-sm text-slate-500 mt-1">Prvním krokem je nahrání PDF souboru s fakturou od T-Mobile nebo vložení jeho textového obsahu.</p>
+            </div>
+            <button onclick="openModal('importModal')" class="bg-rose-600 hover:bg-rose-700 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition shadow-sm flex items-center gap-2">
+              <i class="fa-solid fa-file-arrow-up"></i>
+              <span>Nahrát / Vložit PDF vyúčtování</span>
+            </button>
+          </div>`;
+        return;
+      }
+
+      const filtered = invoiceData.participants.filter(p => 
+        p.phone.includes(search) || p.name.toLowerCase().includes(search)
+      );
+
+      if (filtered.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-2 bg-white rounded-2xl p-8 text-center text-slate-500 border border-slate-200">
+            Žádný účastník neodpovídá vyhledávání.
+          </div>`;
+        return;
+      }
+
+      filtered.forEach((p) => {
+        const t = calcParticipantTotals(p);
+        const formattedPhone = p.phone.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3');
+
+        let itemsHtml = p.items.map(item => `
+          <div class="flex justify-between items-center text-xs py-1 border-b border-slate-100 last:border-none">
+            <span class="text-slate-600 flex items-center gap-1.5">
+              ${getCategoryBadge(item.cat)}
+              ${item.name}
+            </span>
+            <span class="font-medium text-slate-800">${parseFloat(item.amount).toFixed(2).replace('.', ',')} Kč</span>
+          </div>
+        `).join('');
+
+        const cardHtml = `
+          <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col justify-between hover:shadow-md transition">
+            <div class="p-5">
+              <div class="flex justify-between items-start mb-3">
+                <div>
+                  <h3 class="font-bold text-slate-800 text-base">${escapeHtml(p.name)}</h3>
+                  <p class="text-xs text-slate-500 font-mono mt-0.5"><i class="fa-solid fa-mobile-screen mr-1"></i>${formattedPhone}</p>
+                </div>
+                <div class="text-right">
+                  <div class="text-xs text-slate-400">K úhradě s DPH</div>
+                  <div class="text-xl font-bold text-rose-600">${t.totalWithVat.toFixed(2).replace('.', ',')} Kč</div>
+                </div>
+              </div>
+
+              <div class="bg-slate-50/70 rounded-xl p-3 my-3 space-y-0.5">
+                ${itemsHtml}
+              </div>
+
+              <div class="flex justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
+                <span>Základ bez DPH: <strong>${t.base.toFixed(2).replace('.', ',')} Kč</strong></span>
+                <span>DPH 21%: <strong>${t.vat.toFixed(2).replace('.', ',')} Kč</strong></span>
+              </div>
+            </div>
+
+            <div class="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-between items-center text-xs">
+              <button onclick="showQRCode('${p.phone}')" class="bg-rose-600 hover:bg-rose-700 text-white font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+                <i class="fa-solid fa-qrcode"></i>
+                <span>QR Platba</span>
+              </button>
+
+              <div class="flex items-center space-x-2">
+                <button onclick="editParticipant('${p.phone}')" title="Upravit" class="text-slate-500 hover:text-slate-800 p-1.5 hover:bg-white rounded-lg transition">
+                  <i class="fa-solid fa-pen-to-square"></i>
+                </button>
+                <button onclick="deleteParticipant('${p.phone}')" title="Smazat" class="text-rose-500 hover:text-rose-700 p-1.5 hover:bg-white rounded-lg transition">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+        grid.innerHTML += cardHtml;
+      });
+    }
+
+    function getCategoryBadge(cat) {
+      if (cat === 'pausal') return '<span class="px-1.5 py-0.5 text-[10px] bg-rose-100 text-rose-700 rounded font-semibold uppercase">Paušál</span>';
+      if (cat === 'volani') return '<span class="px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-700 rounded font-semibold uppercase">Volání</span>';
+      if (cat === 'sms') return '<span class="px-1.5 py-0.5 text-[10px] bg-amber-100 text-amber-700 rounded font-semibold uppercase">SMS</span>';
+      if (cat === 'data') return '<span class="px-1.5 py-0.5 text-[10px] bg-emerald-100 text-emerald-700 rounded font-semibold uppercase">Data</span>';
+      return '<span class="px-1.5 py-0.5 text-[10px] bg-slate-100 text-slate-700 rounded font-semibold uppercase">Ostatní</span>';
+    }
+
+    function renderPrintTable() {
+      const tbody = document.getElementById('printTableBody');
+      const tfoot = document.getElementById('printTableFoot');
+      tbody.innerHTML = '';
+
+      let sumPausal = 0, sumVolani = 0, sumSMS = 0, sumData = 0, sumBase = 0, sumVat = 0, sumTotal = 0;
+
+      invoiceData.participants.forEach(p => {
+        const t = calcParticipantTotals(p);
+        sumPausal += t.pausal;
+        sumVolani += t.volani;
+        sumSMS += t.sms;
+        sumData += (t.data + t.ostatni);
+        sumBase += t.base;
+        sumVat += t.vat;
+        sumTotal += t.totalWithVat;
+
+        tbody.innerHTML += `
+          <tr>
+            <td class="py-2 font-mono">${p.phone}</td>
+            <td class="py-2 font-medium">${escapeHtml(p.name)}</td>
+            <td class="py-2 text-right">${t.pausal.toFixed(2)} Kč</td>
+            <td class="py-2 text-right">${t.volani.toFixed(2)} Kč</td>
+            <td class="py-2 text-right">${t.sms.toFixed(2)} Kč</td>
+            <td class="py-2 text-right">${(t.data + t.ostatni).toFixed(2)} Kč</td>
+            <td class="py-2 text-right font-semibold">${t.base.toFixed(2)} Kč</td>
+            <td class="py-2 text-right">${t.vat.toFixed(2)} Kč</td>
+            <td class="py-2 text-right font-bold text-slate-900">${t.totalWithVat.toFixed(2)} Kč</td>
+          </tr>
+        `;
+      });
+
+      tfoot.innerHTML = `
+        <td colspan="2" class="py-3">CELKEM SOUČET</td>
+        <td class="py-3 text-right">${sumPausal.toFixed(2)} Kč</td>
+        <td class="py-3 text-right">${sumVolani.toFixed(2)} Kč</td>
+        <td class="py-3 text-right">${sumSMS.toFixed(2)} Kč</td>
+        <td class="py-3 text-right">${sumData.toFixed(2)} Kč</td>
+        <td class="py-3 text-right">${sumBase.toFixed(2)} Kč</td>
+        <td class="py-3 text-right">${sumVat.toFixed(2)} Kč</td>
+        <td class="py-3 text-right text-rose-700 text-sm">${sumTotal.toFixed(2)} Kč</td>
+      `;
+    }
+
+    function renderCharts() {
+      const labels = invoiceData.participants.map(p => p.name.split(' ')[0] + ' (' + p.phone.slice(-3) + ')');
+      const totalsWithVat = invoiceData.participants.map(p => calcParticipantTotals(p).totalWithVat);
+
+      const ctxDonut = document.getElementById('participantsChart').getContext('2d');
+      if (participantsChart) participantsChart.destroy();
+      participantsChart = new Chart(ctxDonut, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: totalsWithVat.length > 0 ? totalsWithVat : [1],
+            backgroundColor: totalsWithVat.length > 0 ? COLORS : ['#E2E8F0'],
+            borderWidth: 2,
+            borderColor: '#ffffff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } },
+          cutout: '65%'
+        }
+      });
+
+      let catPausal = 0, catVolani = 0, catSMS = 0, catData = 0, catOstatni = 0;
+      invoiceData.participants.forEach(p => {
+        const t = calcParticipantTotals(p);
+        catPausal += t.pausal;
+        catVolani += t.volani;
+        catSMS += t.sms;
+        catData += t.data;
+        catOstatni += t.ostatni;
+      });
+
+      const ctxBar = document.getElementById('categoriesChart').getContext('2d');
+      if (categoriesChart) categoriesChart.destroy();
+      categoriesChart = new Chart(ctxBar, {
+        type: 'bar',
+        data: {
+          labels: ['Paušály', 'Volání', 'SMS', 'Data', 'Ostatní'],
+          datasets: [{
+            label: 'Částka bez DPH (Kč)',
+            data: [catPausal, catVolani, catSMS, catData, catOstatni],
+            backgroundColor: '#E20074',
+            borderRadius: 8
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { borderDash: [4, 4] } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    function openModal(id) { 
+      if (id === 'myAccountModal') {
+        const acc = invoiceData.myAccount || DEFAULT_MY_ACCOUNT;
+        document.getElementById('inputMyAccNum').value = acc.number;
+        document.getElementById('inputMyBankCode').value = acc.bankCode;
+      }
+      document.getElementById(id).classList.remove('hidden'); 
+    }
+    
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    function saveMyAccount(e) {
+      e.preventDefault();
+      const num = document.getElementById('inputMyAccNum').value.trim();
+      const bank = document.getElementById('inputMyBankCode').value.trim();
+      
+      invoiceData.myAccount = { number: num, bankCode: bank };
+      saveState();
+      renderAll();
+      closeModal('myAccountModal');
+    }
+
+    function editParticipant(phone) {
+      const p = invoiceData.participants.find(x => x.phone === phone);
+      if (!p) return;
+
+      const t = calcParticipantTotals(p);
+      document.getElementById('modalParticipantTitle').innerText = 'Upravit účastníka';
+      document.getElementById('editPhoneOriginal').value = p.phone;
+      document.getElementById('inputPhone').value = p.phone;
+      document.getElementById('inputUserName').value = p.name;
+      document.getElementById('inputPausal').value = t.pausal.toFixed(2);
+      document.getElementById('inputVolani').value = t.volani.toFixed(2);
+      document.getElementById('inputSMS').value = t.sms.toFixed(2);
+      document.getElementById('inputData').value = (t.data + t.ostatni).toFixed(2);
+
+      openModal('addParticipantModal');
+    }
+
+    function saveParticipant(e) {
+      e.preventDefault();
+      const origPhone = document.getElementById('editPhoneOriginal').value;
+      const phone = document.getElementById('inputPhone').value.trim();
+      const name = document.getElementById('inputUserName').value.trim();
+      
+      const pausal = parseFloat(document.getElementById('inputPausal').value) || 0;
+      const volani = parseFloat(document.getElementById('inputVolani').value) || 0;
+      const sms = parseFloat(document.getElementById('inputSMS').value) || 0;
+      const data = parseFloat(document.getElementById('inputData').value) || 0;
+
+      const items = [];
+      if (pausal > 0) items.push({ name: "Měsíční paušál", cat: "pausal", amount: pausal });
+      if (volani > 0) items.push({ name: "Volání", cat: "volani", amount: volani });
+      if (sms > 0) items.push({ name: "SMS", cat: "sms", amount: sms });
+      if (data > 0) items.push({ name: "Datové služby", cat: "data", amount: data });
+
+      if (origPhone) {
+        const idx = invoiceData.participants.findIndex(x => x.phone === origPhone);
+        if (idx !== -1) {
+          invoiceData.participants[idx] = { phone, name, items };
+        }
+      } else {
+        invoiceData.participants.push({ phone, name, items });
+      }
+
+      saveState();
+      renderAll();
+      closeModal('addParticipantModal');
+    }
+
+    function deleteParticipant(phone) {
+      if (confirm(`Opravdu chcete smazat účastníka s číslem ${phone}?`)) {
+        invoiceData.participants = invoiceData.participants.filter(x => x.phone !== phone);
+        saveState();
+        renderAll();
+      }
+    }
+
+    function showQRCode(phone) {
+      const p = invoiceData.participants.find(x => x.phone === phone);
+      if (!p) return;
+
+      const t = calcParticipantTotals(p);
+      const acc = invoiceData.myAccount || DEFAULT_MY_ACCOUNT;
+      
+      const iban = getCzIban(acc.number, acc.bankCode);
+      const amountStr = t.totalWithVat.toFixed(2);
+
+      const spdString = `SPD*1.0*ACC:${iban}*AM:${amountStr}*CC:CZK*MSG:Vyuctovani tel ${p.phone}`;
+
+      document.getElementById('qrModalTitle').innerText = `QR Platba - ${p.name}`;
+      document.getElementById('qrAccount').innerText = `${acc.number} / ${acc.bankCode}`;
+      document.getElementById('qrAmount').innerText = `${amountStr.replace('.', ',')} Kč`;
+      document.getElementById('qrMsg').innerText = `Vyuctovani tel ${p.phone}`;
+      
+      const qrContainer = document.getElementById('qrContainer');
+      qrContainer.innerHTML = '';
+
+      new QRCode(qrContainer, {
+        text: spdString,
+        width: 200,
+        height: 200,
+        colorDark : "#000000",
+        colorLight : "#ffffff",
+        correctLevel : QRCode.CorrectLevel.M
+      });
+
+      currentActivePaymentCopy = `Podklady k platbě za telefon (${p.name}):\nČástka: ${amountStr.replace('.', ',')} Kč\nČíslo účtu: ${acc.number}/${acc.bankCode}\nZpráva pro příjemce: Vyuctovani tel ${p.phone}`;
+
+      openModal('qrModal');
+    }
+
+    async function copyPaymentInfo() {
+      const btn = document.getElementById('copyPaymentBtn');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Kopíruji...</span>';
+
+      try {
+        const qrContainer = document.getElementById('qrContainer');
+        const canvas = qrContainer.querySelector('canvas');
+        const img = qrContainer.querySelector('img');
+
+        let dataUrl = '';
+        if (canvas) {
+          dataUrl = canvas.toDataURL('image/png');
+        } else if (img && img.src.startsWith('data:image')) {
+          dataUrl = img.src;
+        }
+
+        if (!dataUrl) {
+          throw new Error('QR kód se nepodařilo převést na obrázek.');
+        }
+
+        const fetchRes = await fetch(dataUrl);
+        const imageBlob = await fetchRes.blob();
+
+        const formattedText = currentActivePaymentCopy.replace(/\n/g, '<br>');
+        const htmlContent = `<div><p>${formattedText}</p><br><img src="${dataUrl}" alt="QR Kod" style="width:200px;height:200px;"></div>`;
+
+        const textBlob = new Blob([currentActivePaymentCopy], { type: 'text/plain' });
+        const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+        const pngBlob = new Blob([imageBlob], { type: 'image/png' });
+
+        if (navigator.clipboard && window.ClipboardItem) {
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                'image/png': pngBlob,
+                'text/html': htmlBlob,
+                'text/plain': textBlob
+              })
+            ]);
+            alert('Podklady k platbě i s QR kódem byly zkopírovány do schránky!');
+          } catch (writeErr) {
+            console.warn('Složený zápis selhal, zkouším HTML a Text:', writeErr);
+            try {
+              await navigator.clipboard.write([
+                new ClipboardItem({
+                  'text/html': htmlBlob,
+                  'text/plain': textBlob
+                })
+              ]);
+              alert('Podklady s QR kódem byly zkopírovány do schránky!');
+            } catch (e2) {
+              await navigator.clipboard.write([
+                new ClipboardItem({
+                  'image/png': pngBlob
+                })
+              ]);
+              alert('QR kód byl zkopírován do schránky jako obrázek!');
+            }
+          }
+        } else {
+          await navigator.clipboard.writeText(currentActivePaymentCopy);
+          alert('Podklady byly zkopírovány pouze jako text.');
+        }
+      } catch (err) {
+        console.error('Kopírování selhalo:', err);
+        await navigator.clipboard.writeText(currentActivePaymentCopy);
+        alert('Podklady k platbě byly zkopírovány jako text.');
+      } finally {
+        btn.innerHTML = originalText;
+      }
+    }
+
+    function getCzIban(accountStr, bankCode) {
+      let prefix = "000000";
+      let number = "";
+      if (accountStr.includes('-')) {
+        const parts = accountStr.split('-');
+        prefix = parts[0].padStart(6, '0');
+        number = parts[1].padStart(10, '0');
+      } else {
+        number = accountStr.padStart(10, '0');
+      }
+      const bank = bankCode.padStart(4, '0');
+      const bban = bank + prefix + number;
+      const numericStr = bban + "123500";
+      const mod = Number(BigInt(numericStr) % 97n);
+      const checksum = String(98 - mod).padStart(2, '0');
+      return `CZ${checksum}${bban}`;
+    }
+
+    function switchImportTab(tab) {
+      if (tab === 'pdf') {
+        document.getElementById('importPdfSection').classList.remove('hidden');
+        document.getElementById('importTextSection').classList.add('hidden');
+        document.getElementById('tabPdfBtn').className = 'py-2.5 px-4 font-semibold text-sm border-b-2 border-rose-600 text-rose-600 transition';
+        document.getElementById('tabTextBtn').className = 'py-2.5 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition';
+      } else {
+        document.getElementById('importPdfSection').classList.add('hidden');
+        document.getElementById('importTextSection').classList.remove('hidden');
+        document.getElementById('tabTextBtn').className = 'py-2.5 px-4 font-semibold text-sm border-b-2 border-rose-600 text-rose-600 transition';
+        document.getElementById('tabPdfBtn').className = 'py-2.5 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition';
+      }
+    }
+
+    function logImport(msg) {
+      const statusBox = document.getElementById('importStatus');
+      statusBox.classList.remove('hidden');
+      statusBox.innerHTML += `<div>> ${msg}</div>`;
+      statusBox.scrollTop = statusBox.scrollHeight;
+    }
+
+    async function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      document.getElementById('importStatus').innerHTML = '';
+      logImport(`Načítání souboru: ${file.name}`);
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        logImport(`PDF načteno, počet stran: ${pdf.numPages}`);
+
+        let fullTextLines = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          
+          const linesMap = {};
+          textContent.items.forEach(item => {
+            if (!item.str.trim()) return;
+            const y = Math.round(item.transform[5] / 3) * 3;
+            if (!linesMap[y]) linesMap[y] = [];
+            linesMap[y].push(item);
+          });
+
+          const sortedYs = Object.keys(linesMap).map(Number).sort((a, b) => b - a);
+
+          sortedYs.forEach(y => {
+            const lineItems = linesMap[y].sort((a, b) => a.transform[4] - b.transform[4]);
+            const lineStr = lineItems.map(it => it.str).join(' ').replace(/\s+/g, ' ');
+            fullTextLines.push(lineStr);
+          });
+
+          fullTextLines.push(`--- PAGE ${i} ---`);
+        }
+
+        logImport('Extrahován strukturovaný text. Zahajuji analýzu vyúčtování...');
+        parseAndApplyTextLines(fullTextLines);
+
+      } catch (err) {
+        logImport(`Chyba při čtení PDF: ${err.message}`);
+        alert('Nepodařilo se přečíst PDF soubor.');
+      }
+    }
+
+    function processPastedText() {
+      const text = document.getElementById('pasteTextArea').value;
+      if (!text.trim()) {
+        alert('Vložte prosím text z vyúčtování.');
+        return;
+      }
+      document.getElementById('importStatus').innerHTML = '';
+      logImport('Zpracovávám vložený text...');
+      parseAndApplyTextLines(text.split('\n'));
+    }
+
+    function extractPhoneNumbersFromInvoice(lines) {
+      const phones = [];
+
+      for (const line of lines) {
+        // Podporuje standardní 9místný formát i případné rozdělení 604 123 456.
+        const regex = /(?:^|\s)([67]\d{2}(?:\s?\d{3})\s?\d{3})(?=\s*\/\s*Tarif\b)/gi;
+
+        for (const match of line.matchAll(regex)) {
+          const phone = match[1].replace(/\s+/g, '');
+          if (!phones.includes(phone)) {
+            phones.push(phone);
+          }
+        }
+      }
+
+      return phones;
+    }
+
+    function parseAndApplyTextLines(lines) {
+      const fullContent = lines.join('\n');
+      logImport('Analýza meta údajů faktury...');
+
+      const docMatch = fullContent.match(/Daňový\s*doklad\s*číslo\s*[:|]?\s*(\d{10})/i);
+      const periodMatch = fullContent.match(/za\s*období\s*(\d{1,2}\.\d{1,2}\.\s*-\s*\d{1,2}\.\d{1,2}\.\d{4})/i);
+
+      if (docMatch) invoiceData.meta.docNumber = docMatch[1];
+      if (periodMatch) invoiceData.meta.period = periodMatch[1];
+
+      // Telefonní čísla načteme dynamicky přímo z hlaviček jednotlivých účastníků.
+      // T-Mobile je v PDF uvádí ve tvaru například: "604123456 / Tarif 5 Pro Firmu bez závazku".
+      // Díky tomu není potřeba udržovat pevný seznam telefonních čísel.
+      const phonesToParse = extractPhoneNumbersFromInvoice(lines);
+
+      logImport(`Zpracovávám účastníky: ${phonesToParse.join(', ')}`);
+      const newParticipants = [];
+
+      phonesToParse.forEach(phone => {
+        let startIdx = lines.findIndex(l => {
+          const normalizedLine = l.replace(/\s+/g, '');
+          return normalizedLine.includes(phone) && (l.includes('Tarif') || l.includes('Účtované položky') || l.includes('Přehled služeb'));
+        });
+        if (startIdx === -1) {
+          startIdx = lines.findIndex(l => l.replace(/\s+/g, '').includes(phone));
+        }
+
+        if (startIdx !== -1) {
+          const blockLines = lines.slice(startIdx, startIdx + 35);
+          const items = [];
+          let phoneTotalCzk = null;
+
+          for (let l of blockLines) {
+            if (l.includes('Celkem za služby bez DPH')) {
+              const totalM = l.match(/([\d\s]+[,\.]\d{2})\s*Kč/i) || l.match(/([\d\s]+[,\.]\d{2})/);
+              if (totalM) {
+                phoneTotalCzk = parseFloat(totalM[1].replace(/\s/g, '').replace(',', '.'));
+              }
+              break;
+            }
+
+            const matches = [...l.matchAll(/([\d]+[,\.]\d{2})/g)];
+            if (matches.length > 0) {
+              const lastVal = parseFloat(matches[matches.length - 1][1].replace(',', '.'));
+
+              if (l.includes('Paušál') || l.includes('Podniková síť') || l.includes('Multi Connection')) {
+                let name = "Měsíční paušál";
+                if (l.includes('Multi Connection')) name = "Multi Connection";
+                if (l.includes('Podniková síť')) name = "Podniková síť";
+                if (lastVal > 0) items.push({ name, cat: "pausal", amount: lastVal });
+              } else if (l.includes('Volání') || l.includes('Volani')) {
+                let name = "Volání";
+                if (l.includes('T-Mobile') || l.includes('TMobile')) name = "Volání T-Mobile";
+                else if (l.includes('O2')) name = "Volání O2";
+                else if (l.includes('Vodafone')) name = "Volání Vodafone";
+                if (lastVal > 0) items.push({ name, cat: "volani", amount: lastVal });
+              } else if (l.includes('SMS')) {
+                if (lastVal > 0) items.push({ name: "SMS ostatní sítě", cat: "sms", amount: lastVal });
+              } else if (l.includes('Datový provoz') || l.includes('Data')) {
+                if (lastVal > 0) items.push({ name: "Datový provoz", cat: "data", amount: lastVal });
+              }
+            }
+          }
+
+          const existing = invoiceData.participants.find(p => p.phone === phone);
+          const name = existing ? existing.name : `Uživatel (${phone.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3')})`;
+
+          if (items.length === 0 && phoneTotalCzk !== null) {
+            items.push({ name: "Paušál a služby", cat: "pausal", amount: phoneTotalCzk });
+          }
+
+          newParticipants.push({
+            phone: phone,
+            name: name,
+            items: items.length > 0 ? items : [{ name: "Paušál", cat: "pausal", amount: 9.00 }]
+          });
+        }
+      });
+
+      if (newParticipants.length > 0) {
+        invoiceData.participants = newParticipants;
+        saveState();
+        renderAll();
+        logImport('Vyúčtování bylo úspěšně rozúčtováno a načteno!');
+        setTimeout(() => closeModal('importModal'), 1000);
+      } else {
+        logImport('Nepodařilo se rozpoznat účastnická čísla.');
+      }
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+  </script>
+</body>
+</html>

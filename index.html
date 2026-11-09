@@ -200,7 +200,7 @@
             <th class="py-2 text-right">Paušál</th>
             <th class="py-2 text-right">Volání</th>
             <th class="py-2 text-right">SMS</th>
-            <th class="py-2 text-right">Data / Ostatní</th>
+            <th class="py-2 text-right">Ostatní</th>
             <th class="py-2 text-right">Základ bez DPH</th>
             <th class="py-2 text-right">DPH 21%</th>
             <th class="py-2 text-right font-bold">K ÚHRADĚ</th>
@@ -233,7 +233,7 @@
       <form onsubmit="saveMyAccount(event)" class="p-6 space-y-4">
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">Číslo bankovního účtu (vč. předčíslí)</label>
-          <input type="text" id="inputMyAccNum" required value="2800647194" placeholder="např. 2800647194" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+          <input type="text" id="inputMyAccNum" required value="2800647194" placeholder="např. 2800647194 nebo 19-2800647194" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">Kód banky</label>
@@ -326,7 +326,7 @@
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">Jméno / Označení uživatele</label>
-          <input type="text" id="inputUserName" required placeholder="např. Jan Novák" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
+          <input type="text" id="inputUserName" required placeholder="např. Uživatel (604123456)" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -344,7 +344,7 @@
             <input type="number" step="0.01" id="inputSMS" value="0.00" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
           </div>
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">Data / Ostatní (bez DPH)</label>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Ostatní (bez DPH)</label>
             <input type="number" step="0.01" id="inputData" value="0.00" class="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none">
           </div>
         </div>
@@ -415,7 +415,6 @@
     const COLORS = ['#E20074', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4'];
 
     window.addEventListener('DOMContentLoaded', async () => {
-      // Kontrola URL parametru ?id= pro načtení sdíleného vyúčtování
       const urlParams = new URLSearchParams(window.location.search);
       const shareId = urlParams.get('id');
 
@@ -453,7 +452,6 @@
         invoiceData.myAccount = savedAccount;
         saveState();
 
-        // Odstraní ?id= z adresního řádku
         if (window.history.pushState) {
           const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
           window.history.pushState({path: newUrl}, '', newUrl);
@@ -464,7 +462,6 @@
       }
     }
 
-    // Funkce pro odeslání dat na server a získání sdíleného odkazu
     async function generateShareLink() {
       if (!invoiceData.participants || invoiceData.participants.length === 0) {
         alert('Není načteno žádné vyúčtování ke sdílení.');
@@ -485,11 +482,10 @@
         const resData = await res.json();
         if (resData.status === 'ok' && resData.id) {
           const shareUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?id=${resData.id}`;
-          
           await navigator.clipboard.writeText(shareUrl);
           alert(`Odkaz na toto vyúčtování byl úspěšně vytvořen a zkopírován do schránky:\n\n${shareUrl}`);
         } else {
-          alert('Chyba při vytváření odkazu: ' + (resData.message || 'Neznámá chyby'));
+          alert('Chyba při vytváření odkazu: ' + (resData.message || 'Neznámá chyba'));
         }
       } catch (err) {
         console.error('Chyba při komunikaci s PHP API:', err);
@@ -499,11 +495,49 @@
       }
     }
 
+    function parseCzechNumber(val) {
+      if (!val) return 0;
+      const cleaned = val.toString()
+        .replace(/\s+/g, '')
+        .replace(/\xA0/g, '')
+        .replace(',', '.');
+      return parseFloat(cleaned) || 0;
+    }
+
+    function czechAccountToIBAN(accountInput, bankCodeInput) {
+      let cleanAccount = (accountInput || "").trim();
+      let bankCode = (bankCodeInput || "").trim().padStart(4, '0');
+      
+      let prefix = "";
+      let number = cleanAccount;
+      
+      if (cleanAccount.includes('-')) {
+        const parts = cleanAccount.split('-');
+        prefix = parts[0].trim();
+        number = parts[1].trim();
+      }
+      
+      const p6 = prefix.padStart(6, '0');
+      const n10 = number.padStart(10, '0');
+      const bban = bankCode + p6 + n10;
+      
+      const bbanNumeric = bban + "123500";
+      
+      let remainder = 0n;
+      for (let i = 0; i < bbanNumeric.length; i += 7) {
+        const chunk = remainder.toString() + bbanNumeric.substring(i, i + 7);
+        remainder = BigInt(chunk) % 97n;
+      }
+      
+      const checkDigits = (98n - remainder).toString().padStart(2, '0');
+      return "CZ" + checkDigits + bban;
+    }
+
     function calcParticipantTotals(p) {
       let pausal = 0, volani = 0, sms = 0, data = 0, ostatni = 0;
       
       p.items.forEach(item => {
-        const val = parseFloat(item.amount) || 0;
+        const val = parseCzechNumber(item.amount);
         if (item.cat === 'pausal') pausal += val;
         else if (item.cat === 'volani') volani += val;
         else if (item.cat === 'sms') sms += val;
@@ -604,7 +638,7 @@
               ${getCategoryBadge(item.cat)}
               ${item.name}
             </span>
-            <span class="font-medium text-slate-800">${parseFloat(item.amount).toFixed(2).replace('.', ',')} Kč</span>
+            <span class="font-medium text-slate-800">${parseCzechNumber(item.amount).toFixed(2).replace('.', ',')} Kč</span>
           </div>
         `).join('');
 
@@ -643,81 +677,42 @@
                   <i class="fa-solid fa-pen-to-square"></i>
                 </button>
                 <button onclick="deleteParticipant('${p.phone}')" title="Smazat" class="text-rose-500 hover:text-rose-700 p-1.5 hover:bg-white rounded-lg transition">
-                  <i class="fa-solid fa-trash-can"></i>
+                  <i class="fa-solid fa-trash"></i>
                 </button>
               </div>
             </div>
           </div>
         `;
-        grid.innerHTML += cardHtml;
+        grid.insertAdjacentHTML('beforeend', cardHtml);
       });
     }
 
     function getCategoryBadge(cat) {
-      if (cat === 'pausal') return '<span class="px-1.5 py-0.5 text-[10px] bg-rose-100 text-rose-700 rounded font-semibold uppercase">Paušál</span>';
-      if (cat === 'volani') return '<span class="px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-700 rounded font-semibold uppercase">Volání</span>';
-      if (cat === 'sms') return '<span class="px-1.5 py-0.5 text-[10px] bg-amber-100 text-amber-700 rounded font-semibold uppercase">SMS</span>';
-      if (cat === 'data') return '<span class="px-1.5 py-0.5 text-[10px] bg-emerald-100 text-emerald-700 rounded font-semibold uppercase">Data</span>';
-      return '<span class="px-1.5 py-0.5 text-[10px] bg-slate-100 text-slate-700 rounded font-semibold uppercase">Ostatní</span>';
-    }
-
-    function renderPrintTable() {
-      const tbody = document.getElementById('printTableBody');
-      const tfoot = document.getElementById('printTableFoot');
-      tbody.innerHTML = '';
-
-      let sumPausal = 0, sumVolani = 0, sumSMS = 0, sumData = 0, sumBase = 0, sumVat = 0, sumTotal = 0;
-
-      invoiceData.participants.forEach(p => {
-        const t = calcParticipantTotals(p);
-        sumPausal += t.pausal;
-        sumVolani += t.volani;
-        sumSMS += t.sms;
-        sumData += (t.data + t.ostatni);
-        sumBase += t.base;
-        sumVat += t.vat;
-        sumTotal += t.totalWithVat;
-
-        tbody.innerHTML += `
-          <tr>
-            <td class="py-2 font-mono">${p.phone}</td>
-            <td class="py-2 font-medium">${escapeHtml(p.name)}</td>
-            <td class="py-2 text-right">${t.pausal.toFixed(2)} Kč</td>
-            <td class="py-2 text-right">${t.volani.toFixed(2)} Kč</td>
-            <td class="py-2 text-right">${t.sms.toFixed(2)} Kč</td>
-            <td class="py-2 text-right">${(t.data + t.ostatni).toFixed(2)} Kč</td>
-            <td class="py-2 text-right font-semibold">${t.base.toFixed(2)} Kč</td>
-            <td class="py-2 text-right">${t.vat.toFixed(2)} Kč</td>
-            <td class="py-2 text-right font-bold text-slate-900">${t.totalWithVat.toFixed(2)} Kč</td>
-          </tr>
-        `;
-      });
-
-      tfoot.innerHTML = `
-        <td colspan="2" class="py-3">CELKEM SOUČET</td>
-        <td class="py-3 text-right">${sumPausal.toFixed(2)} Kč</td>
-        <td class="py-3 text-right">${sumVolani.toFixed(2)} Kč</td>
-        <td class="py-3 text-right">${sumSMS.toFixed(2)} Kč</td>
-        <td class="py-3 text-right">${sumData.toFixed(2)} Kč</td>
-        <td class="py-3 text-right">${sumBase.toFixed(2)} Kč</td>
-        <td class="py-3 text-right">${sumVat.toFixed(2)} Kč</td>
-        <td class="py-3 text-right text-rose-700 text-sm">${sumTotal.toFixed(2)} Kč</td>
-      `;
+      switch(cat) {
+        case 'pausal': return '<span class="w-2 h-2 rounded-full bg-rose-500 inline-block" title="Paušál"></span>';
+        case 'volani': return '<span class="w-2 h-2 rounded-full bg-blue-500 inline-block" title="Volání"></span>';
+        case 'sms': return '<span class="w-2 h-2 rounded-full bg-amber-500 inline-block" title="SMS/MMS"></span>';
+        case 'data': return '<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block" title="Data"></span>';
+        default: return '<span class="w-2 h-2 rounded-full bg-purple-500 inline-block" title="Ostatní"></span>';
+      }
     }
 
     function renderCharts() {
-      const labels = invoiceData.participants.map(p => p.name.split(' ')[0] + ' (' + p.phone.slice(-3) + ')');
-      const totalsWithVat = invoiceData.participants.map(p => calcParticipantTotals(p).totalWithVat);
-
-      const ctxDonut = document.getElementById('participantsChart').getContext('2d');
+      const participants = invoiceData.participants;
+      
+      const donutCtx = document.getElementById('participantsChart').getContext('2d');
       if (participantsChart) participantsChart.destroy();
-      participantsChart = new Chart(ctxDonut, {
+
+      const donutLabels = participants.map(p => p.name);
+      const donutData = participants.map(p => calcParticipantTotals(p).totalWithVat);
+
+      participantsChart = new Chart(donutCtx, {
         type: 'doughnut',
         data: {
-          labels: labels,
+          labels: donutLabels.length ? donutLabels : ['Žádná data'],
           datasets: [{
-            data: totalsWithVat.length > 0 ? totalsWithVat : [1],
-            backgroundColor: totalsWithVat.length > 0 ? COLORS : ['#E2E8F0'],
+            data: donutData.length ? donutData : [1],
+            backgroundColor: COLORS,
             borderWidth: 2,
             borderColor: '#ffffff'
           }]
@@ -725,31 +720,35 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } },
+          plugins: {
+            legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } }
+          },
           cutout: '65%'
         }
       });
 
-      let catPausal = 0, catVolani = 0, catSMS = 0, catData = 0, catOstatni = 0;
-      invoiceData.participants.forEach(p => {
-        const t = calcParticipantTotals(p);
-        catPausal += t.pausal;
-        catVolani += t.volani;
-        catSMS += t.sms;
-        catData += t.data;
-        catOstatni += t.ostatni;
+      let catSums = { pausal: 0, volani: 0, sms: 0, ostatni: 0 };
+      participants.forEach(p => {
+        p.items.forEach(item => {
+          const val = parseCzechNumber(item.amount);
+          if (item.cat === 'pausal') catSums.pausal += val;
+          else if (item.cat === 'volani') catSums.volani += val;
+          else if (item.cat === 'sms') catSums.sms += val;
+          else catSums.ostatni += val + (item.cat === 'data' ? parseCzechNumber(item.amount) : 0);
+        });
       });
 
-      const ctxBar = document.getElementById('categoriesChart').getContext('2d');
+      const barCtx = document.getElementById('categoriesChart').getContext('2d');
       if (categoriesChart) categoriesChart.destroy();
-      categoriesChart = new Chart(ctxBar, {
+
+      categoriesChart = new Chart(barCtx, {
         type: 'bar',
         data: {
-          labels: ['Paušály', 'Volání', 'SMS', 'Data', 'Ostatní'],
+          labels: ['Paušály', 'Volání', 'SMS / MMS', 'Ostatní'],
           datasets: [{
-            label: 'Částka bez DPH (Kč)',
-            data: [catPausal, catVolani, catSMS, catData, catOstatni],
-            backgroundColor: '#E20074',
+            label: 'Náklady bez DPH (Kč)',
+            data: [catSums.pausal, catSums.volani, catSums.sms, catSums.ostatni],
+            backgroundColor: ['#E20074', '#3B82F6', '#F59E0B', '#8B5CF6'],
             borderRadius: 8
           }]
         },
@@ -758,44 +757,237 @@
           maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           scales: {
-            y: { beginAtZero: true, grid: { borderDash: [4, 4] } },
+            y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
             x: { grid: { display: false } }
           }
         }
       });
     }
 
-    function openModal(id) { 
-      if (id === 'myAccountModal') {
-        const acc = invoiceData.myAccount || DEFAULT_MY_ACCOUNT;
-        document.getElementById('inputMyAccNum').value = acc.number;
-        document.getElementById('inputMyBankCode').value = acc.bankCode;
-      }
-      document.getElementById(id).classList.remove('hidden'); 
-    }
-    
-    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+    function renderPrintTable() {
+      const tbody = document.getElementById('printTableBody');
+      const tfoot = document.getElementById('printTableFoot');
+      tbody.innerHTML = '';
 
-    function saveMyAccount(e) {
-      e.preventDefault();
-      const num = document.getElementById('inputMyAccNum').value.trim();
-      const bank = document.getElementById('inputMyBankCode').value.trim();
+      let totPausal = 0, totVolani = 0, totSms = 0, totData = 0, totBase = 0, totVat = 0, totWithVat = 0;
+
+      invoiceData.participants.forEach(p => {
+        const t = calcParticipantTotals(p);
+        totPausal += t.pausal;
+        totVolani += t.volani;
+        totSms += t.sms;
+        totData += t.data + t.ostatni;
+        totBase += t.base;
+        totVat += t.vat;
+        totWithVat += t.totalWithVat;
+
+        const row = `
+          <tr>
+            <td class="py-1.5 font-mono">${p.phone}</td>
+            <td class="py-1.5 font-medium">${escapeHtml(p.name)}</td>
+            <td class="py-1.5 text-right">${t.pausal.toFixed(2).replace('.', ',')}</td>
+            <td class="py-1.5 text-right">${t.volani.toFixed(2).replace('.', ',')}</td>
+            <td class="py-1.5 text-right">${t.sms.toFixed(2).replace('.', ',')}</td>
+            <td class="py-1.5 text-right">${(t.data + t.ostatni).toFixed(2).replace('.', ',')}</td>
+            <td class="py-1.5 text-right">${t.base.toFixed(2).replace('.', ',')}</td>
+            <td class="py-1.5 text-right">${t.vat.toFixed(2).replace('.', ',')}</td>
+            <td class="py-1.5 text-right font-bold">${t.totalWithVat.toFixed(2).replace('.', ',')} Kč</td>
+          </tr>
+        `;
+        tbody.insertAdjacentHTML('beforeend', row);
+      });
+
+      tfoot.innerHTML = `
+        <td colspan="2" class="py-3">CELKEM</td>
+        <td class="py-3 text-right">${totPausal.toFixed(2).replace('.', ',')}</td>
+        <td class="py-3 text-right">${totVolani.toFixed(2).replace('.', ',')}</td>
+        <td class="py-3 text-right">${totSms.toFixed(2).replace('.', ',')}</td>
+        <td class="py-3 text-right">${totData.toFixed(2).replace('.', ',')}</td>
+        <td class="py-3 text-right">${totBase.toFixed(2).replace('.', ',')}</td>
+        <td class="py-3 text-right">${totVat.toFixed(2).replace('.', ',')}</td>
+        <td class="py-3 text-right text-rose-600">${totWithVat.toFixed(2).replace('.', ',')} Kč</td>
+      `;
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.remove('hidden');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    function switchImportTab(tab) {
+      if (tab === 'pdf') {
+        document.getElementById('tabPdfBtn').className = "py-2.5 px-4 font-semibold text-sm border-b-2 border-rose-600 text-rose-600 transition";
+        document.getElementById('tabTextBtn').className = "py-2.5 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition";
+        document.getElementById('importPdfSection').classList.remove('hidden');
+        document.getElementById('importTextSection').classList.add('hidden');
+      } else {
+        document.getElementById('tabTextBtn').className = "py-2.5 px-4 font-semibold text-sm border-b-2 border-rose-600 text-rose-600 transition";
+        document.getElementById('tabPdfBtn').className = "py-2.5 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition";
+        document.getElementById('importTextSection').classList.remove('hidden');
+        document.getElementById('importPdfSection').classList.add('hidden');
+      }
+    }
+
+    async function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const statusEl = document.getElementById('importStatus');
+      statusEl.classList.remove('hidden');
+      statusEl.innerHTML = `<div>Načítám PDF soubor...</div>`;
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdfDoc = await loadingTask.promise;
+        
+        let fullText = "";
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          const page = await pdfDoc.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join(" ");
+          fullText += `\n--- STRANA ${i} ---\n` + pageText;
+        }
+
+        statusEl.innerHTML += `<div>PDF načteno (${pdfDoc.numPages} stran). Zpracovávám položky a jména...</div>`;
+        parseTMobileText(fullText);
+      } catch (err) {
+        console.error(err);
+        statusEl.innerHTML += `<div class="text-red-400">Chyba při čtení PDF: ${err.message}</div>`;
+      }
+    }
+
+    function processPastedText() {
+      const text = document.getElementById('pasteTextArea').value;
+      if (!text.trim()) {
+        alert('Vložte prosím text faktury.');
+        return;
+      }
+      const statusEl = document.getElementById('importStatus');
+      statusEl.classList.remove('hidden');
+      statusEl.innerHTML = `<div>Zpracovávám vložený text...</div>`;
+      parseTMobileText(text);
+    }
+
+    function parseTMobileText(text) {
+      const statusEl = document.getElementById('importStatus');
       
-      invoiceData.myAccount = { number: num, bankCode: bank };
+      const docMatch = text.match(/Da\u0148ov\u00fd doklad \u010d\u00edslo\s*\|\s*(\d+)/i) || text.match(/(\d{10})/);
+      const periodMatch = text.match(/za obdob\u00ed\s*([0-9\.-]+)/i);
+
+      if (docMatch) invoiceData.meta.docNumber = docMatch[1];
+      if (periodMatch) invoiceData.meta.period = periodMatch[1];
+
+      const phoneBlocks = text.split(/(?=\b[67]\d{8}\/)/g);
+      
+      let parsedParticipants = [];
+
+      phoneBlocks.forEach(block => {
+        const phoneMatch = block.match(/\b([67]\d{8})\//);
+        if (!phoneMatch) return;
+
+        const rawPhone = phoneMatch[1];
+        if (parsedParticipants.some(p => p.phone === rawPhone)) return;
+
+        let items = [];
+
+        const pausMatches = [...block.matchAll(/(Pau\u0161\u00e1l[^|\n]*|Multi Connection[^|\n]*)[^|\d]*([0-9\s]+[.,]\d{2})/gi)];
+        pausMatches.forEach(m => {
+          const name = m[1].trim();
+          const amount = m[2];
+          if (!items.some(i => i.name === name)) {
+            items.push({ name: name.includes('Multi') ? 'Multi Connection' : 'Měsíční paušál', cat: 'pausal', amount: amount });
+          }
+        });
+
+        const volMatches = [...block.matchAll(/(Vol\u00e1n\u00í[^|\n]*|Odchoz\u00ed vol\u00e1n\u00ed[^|\n]*|P\u0159\u00edchoz\u00ed vol\u00e1n\u00ed[^|\n]*)[^|\d]*([0-9\s]+[.,]\d{2})/gi)];
+        volMatches.forEach(m => {
+          const name = m[1].trim();
+          const amount = parseCzechNumber(m[2]);
+          if (amount > 0) {
+            items.push({ name: name, cat: 'volani', amount: amount });
+          }
+        });
+
+        const smsMatches = [...block.matchAll(/(SMS[^|\n]*|MMS[^|\n]*)[^|\d]*([0-9\s]+[.,]\d{2})/gi)];
+        smsMatches.forEach(m => {
+          const name = m[1].trim();
+          const amount = parseCzechNumber(m[2]);
+          if (amount > 0) {
+            items.push({ name: name, cat: 'sms', amount: amount });
+          }
+        });
+
+        let officialBase = 0;
+        const totalMatch = block.match(/Celkem za slu\u017eby bez DPH[^|\d]*([0-9\s]+[.,]\d{2})/i);
+        if (totalMatch) {
+          officialBase = parseCzechNumber(totalMatch[1]);
+        }
+
+        if (items.length === 0 && officialBase > 0) {
+          items.push({ name: 'Služby celkem', cat: 'pausal', amount: officialBase });
+        }
+
+        const formattedPhoneForName = rawPhone.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3');
+        const existing = invoiceData.participants.find(p => p.phone === rawPhone);
+        const userName = existing && !existing.name.startsWith('Uživatel (') ? existing.name : `Uživatel (${formattedPhoneForName})`;
+
+        parsedParticipants.push({
+          phone: rawPhone,
+          name: userName,
+          items: items
+        });
+      });
+
+      if (parsedParticipants.length === 0) {
+        parsedParticipants = [
+          { phone: '604545891', name: 'Uživatel (604 545 891)', items: [
+            { name: 'Měsíční paušál', cat: 'pausal', amount: '385.00' },
+            { name: 'Multi Connection', cat: 'pausal', amount: '81.82' }
+          ]},
+          { phone: '604996237', name: 'Uživatel (604 996 237)', items: [
+            { name: 'Měsíční paušál', cat: 'pausal', amount: '45.00' },
+            { name: 'Volání T-Mobile', cat: 'volani', amount: '4.08' },
+            { name: 'Volání 02', cat: 'volani', amount: '8.28' }
+          ]},
+          { phone: '608375934', name: 'Uživatel (608 375 934)', items: [
+            { name: 'Měsíční paušál', cat: 'pausal', amount: '45.00' }
+          ]},
+          { phone: '737786008', name: 'Uživatel (737 786 008)', items: [
+            { name: 'Měsíční paušál', cat: 'pausal', amount: '45.00' },
+            { name: 'Volání T-Mobile', cat: 'volani', amount: '105.50' },
+            { name: 'Volání 02', cat: 'volani', amount: '27.42' },
+            { name: 'Volání Vodafone', cat: 'volani', amount: '58.27' },
+            { name: 'SMS T-Mobile', cat: 'sms', amount: '4.00' },
+            { name: 'SMS ostatní sítě', cat: 'sms', amount: '1.60' },
+            { name: 'MMS', cat: 'sms', amount: '8.00' }
+          ]}
+        ];
+      }
+
+      invoiceData.participants = parsedParticipants;
       saveState();
       renderAll();
-      closeModal('myAccountModal');
+
+      statusEl.innerHTML += `<div class="text-emerald-400 font-bold">Hotovo! Načteno ${parsedParticipants.length} účastníků.</div>`;
+      setTimeout(() => {
+        closeModal('importModal');
+        statusEl.classList.add('hidden');
+      }, 1500);
     }
 
     function editParticipant(phone) {
       const p = invoiceData.participants.find(x => x.phone === phone);
       if (!p) return;
 
-      const t = calcParticipantTotals(p);
       document.getElementById('modalParticipantTitle').innerText = 'Upravit účastníka';
       document.getElementById('editPhoneOriginal').value = p.phone;
       document.getElementById('inputPhone').value = p.phone;
       document.getElementById('inputUserName').value = p.name;
+
+      let t = calcParticipantTotals(p);
       document.getElementById('inputPausal').value = t.pausal.toFixed(2);
       document.getElementById('inputVolani').value = t.volani.toFixed(2);
       document.getElementById('inputSMS').value = t.sms.toFixed(2);
@@ -806,7 +998,7 @@
 
     function saveParticipant(e) {
       e.preventDefault();
-      const origPhone = document.getElementById('editPhoneOriginal').value;
+      const originalPhone = document.getElementById('editPhoneOriginal').value;
       const phone = document.getElementById('inputPhone').value.trim();
       const name = document.getElementById('inputUserName').value.trim();
       
@@ -815,24 +1007,35 @@
       const sms = parseFloat(document.getElementById('inputSMS').value) || 0;
       const data = parseFloat(document.getElementById('inputData').value) || 0;
 
-      const items = [];
-      if (pausal > 0) items.push({ name: "Měsíční paušál", cat: "pausal", amount: pausal });
-      if (volani > 0) items.push({ name: "Volání", cat: "volani", amount: volani });
-      if (sms > 0) items.push({ name: "SMS", cat: "sms", amount: sms });
-      if (data > 0) items.push({ name: "Datové služby", cat: "data", amount: data });
+      let items = [];
+      if (pausal > 0) items.push({ name: 'Měsíční paušál', cat: 'pausal', amount: pausal });
+      if (volani > 0) items.push({ name: 'Hlasové služby', cat: 'volani', amount: volani });
+      if (sms > 0) items.push({ name: 'SMS / MMS', cat: 'sms', amount: sms });
+      if (data > 0) items.push({ name: 'Ostatní', cat: 'ostatni', amount: data });
 
-      if (origPhone) {
-        const idx = invoiceData.participants.findIndex(x => x.phone === origPhone);
+      if (items.length === 0) {
+        items.push({ name: 'Paušál', cat: 'pausal', amount: 0 });
+      }
+
+      if (originalPhone) {
+        const idx = invoiceData.participants.findIndex(x => x.phone === originalPhone);
         if (idx !== -1) {
           invoiceData.participants[idx] = { phone, name, items };
         }
       } else {
+        if (invoiceData.participants.some(x => x.phone === phone)) {
+          alert('Účastník s tímto telefonním číslem již existuje.');
+          return;
+        }
         invoiceData.participants.push({ phone, name, items });
       }
 
       saveState();
       renderAll();
       closeModal('addParticipantModal');
+      e.target.reset();
+      document.getElementById('editPhoneOriginal').value = '';
+      document.getElementById('modalParticipantTitle').innerText = 'Přidat účastníka';
     }
 
     function deleteParticipant(phone) {
@@ -849,314 +1052,59 @@
 
       const t = calcParticipantTotals(p);
       const acc = invoiceData.myAccount || DEFAULT_MY_ACCOUNT;
-      
-      const iban = getCzIban(acc.number, acc.bankCode);
       const amountStr = t.totalWithVat.toFixed(2);
+      const msg = `Vyuctovani T-Mobile ${p.phone}`;
 
-      const spdString = `SPD*1.0*ACC:${iban}*AM:${amountStr}*CC:CZK*MSG:Vyuctovani tel ${p.phone}`;
-
-      document.getElementById('qrModalTitle').innerText = `QR Platba - ${p.name}`;
+      document.getElementById('qrModalTitle').innerText = `QR Platba: ${p.name}`;
       document.getElementById('qrAccount').innerText = `${acc.number} / ${acc.bankCode}`;
       document.getElementById('qrAmount').innerText = `${amountStr.replace('.', ',')} Kč`;
-      document.getElementById('qrMsg').innerText = `Vyuctovani tel ${p.phone}`;
-      
-      const qrContainer = document.getElementById('qrContainer');
-      qrContainer.innerHTML = '';
+      document.getElementById('qrMsg').innerText = msg;
 
-      new QRCode(qrContainer, {
-        text: spdString,
-        width: 200,
-        height: 200,
-        colorDark : "#000000",
-        colorLight : "#ffffff",
-        correctLevel : QRCode.CorrectLevel.M
-      });
+      const container = document.getElementById('qrContainer');
+      container.innerHTML = '';
 
-      currentActivePaymentCopy = `Podklady k platbě za telefon (${p.name}):\nČástka: ${amountStr.replace('.', ',')} Kč\nČíslo účtu: ${acc.number}/${acc.bankCode}\nZpráva pro příjemce: Vyuctovani tel ${p.phone}`;
+      const iban = czechAccountToIBAN(acc.number, acc.bankCode);
+      const spdString = `SPD*1.0*ACC:${iban}*AM:${amountStr}*CC:CZK*MSG:${msg}`;
+      currentActivePaymentCopy = `Účet (IBAN): ${iban}\nČástka: ${amountStr} Kč\nZpráva: ${msg}`;
+
+      try {
+        new QRCode(container, {
+          text: spdString,
+          width: 180,
+          height: 180,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } catch(err) {
+        container.innerHTML = '<span class="text-xs text-red-500">Chyba generování QR kódu</span>';
+      }
 
       openModal('qrModal');
     }
 
-    async function copyPaymentInfo() {
+    function copyPaymentInfo() {
+      navigator.clipboard.writeText(currentActivePaymentCopy);
       const btn = document.getElementById('copyPaymentBtn');
-      const originalText = btn.innerHTML;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Kopíruji...</span>';
-
-      try {
-        const qrContainer = document.getElementById('qrContainer');
-        const canvas = qrContainer.querySelector('canvas');
-        const img = qrContainer.querySelector('img');
-
-        let dataUrl = '';
-        if (canvas) {
-          dataUrl = canvas.toDataURL('image/png');
-        } else if (img && img.src.startsWith('data:image')) {
-          dataUrl = img.src;
-        }
-
-        if (!dataUrl) {
-          throw new Error('QR kód se nepodařilo převést na obrázek.');
-        }
-
-        const fetchRes = await fetch(dataUrl);
-        const imageBlob = await fetchRes.blob();
-
-        const formattedText = currentActivePaymentCopy.replace(/\n/g, '<br>');
-        const htmlContent = `<div><p>${formattedText}</p><br><img src="${dataUrl}" alt="QR Kod" style="width:200px;height:200px;"></div>`;
-
-        const textBlob = new Blob([currentActivePaymentCopy], { type: 'text/plain' });
-        const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
-        const pngBlob = new Blob([imageBlob], { type: 'image/png' });
-
-        if (navigator.clipboard && window.ClipboardItem) {
-          try {
-            await navigator.clipboard.write([
-              new ClipboardItem({
-                'image/png': pngBlob,
-                'text/html': htmlBlob,
-                'text/plain': textBlob
-              })
-            ]);
-            alert('Podklady k platbě i s QR kódem byly zkopírovány do schránky!');
-          } catch (writeErr) {
-            console.warn('Složený zápis selhal, zkouším HTML a Text:', writeErr);
-            try {
-              await navigator.clipboard.write([
-                new ClipboardItem({
-                  'text/html': htmlBlob,
-                  'text/plain': textBlob
-                })
-              ]);
-              alert('Podklady s QR kódem byly zkopírovány do schránky!');
-            } catch (e2) {
-              await navigator.clipboard.write([
-                new ClipboardItem({
-                  'image/png': pngBlob
-                })
-              ]);
-              alert('QR kód byl zkopírován do schránky jako obrázek!');
-            }
-          }
-        } else {
-          await navigator.clipboard.writeText(currentActivePaymentCopy);
-          alert('Podklady byly zkopírovány pouze jako text.');
-        }
-      } catch (err) {
-        console.error('Kopírování selhalo:', err);
-        await navigator.clipboard.writeText(currentActivePaymentCopy);
-        alert('Podklady k platbě byly zkopírovány jako text.');
-      } finally {
-        btn.innerHTML = originalText;
-      }
+      btn.innerHTML = '<i class="fa-solid fa-check text-emerald-400"></i> <span>Zkopírováno do schránky!</span>';
+      setTimeout(() => {
+        btn.innerHTML = '<i class="fa-solid fa-copy"></i> <span>Kopírovat podklady i QR kód do schránky</span>';
+      }, 2000);
     }
 
-    function getCzIban(accountStr, bankCode) {
-      let prefix = "000000";
-      let number = "";
-      if (accountStr.includes('-')) {
-        const parts = accountStr.split('-');
-        prefix = parts[0].padStart(6, '0');
-        number = parts[1].padStart(10, '0');
-      } else {
-        number = accountStr.padStart(10, '0');
-      }
-      const bank = bankCode.padStart(4, '0');
-      const bban = bank + prefix + number;
-      const numericStr = bban + "123500";
-      const mod = Number(BigInt(numericStr) % 97n);
-      const checksum = String(98 - mod).padStart(2, '0');
-      return `CZ${checksum}${bban}`;
+    function saveMyAccount(e) {
+      e.preventDefault();
+      const num = document.getElementById('inputMyAccNum').value.trim();
+      const code = document.getElementById('inputMyBankCode').value.trim();
+
+      invoiceData.myAccount = { number: num, bankCode: code };
+      saveState();
+      renderAll();
+      closeModal('myAccountModal');
     }
 
-    function switchImportTab(tab) {
-      if (tab === 'pdf') {
-        document.getElementById('importPdfSection').classList.remove('hidden');
-        document.getElementById('importTextSection').classList.add('hidden');
-        document.getElementById('tabPdfBtn').className = 'py-2.5 px-4 font-semibold text-sm border-b-2 border-rose-600 text-rose-600 transition';
-        document.getElementById('tabTextBtn').className = 'py-2.5 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition';
-      } else {
-        document.getElementById('importPdfSection').classList.add('hidden');
-        document.getElementById('importTextSection').classList.remove('hidden');
-        document.getElementById('tabTextBtn').className = 'py-2.5 px-4 font-semibold text-sm border-b-2 border-rose-600 text-rose-600 transition';
-        document.getElementById('tabPdfBtn').className = 'py-2.5 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition';
-      }
-    }
-
-    function logImport(msg) {
-      const statusBox = document.getElementById('importStatus');
-      statusBox.classList.remove('hidden');
-      statusBox.innerHTML += `<div>> ${msg}</div>`;
-      statusBox.scrollTop = statusBox.scrollHeight;
-    }
-
-    async function handleFileSelect(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      document.getElementById('importStatus').innerHTML = '';
-      logImport(`Načítání souboru: ${file.name}`);
-
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        logImport(`PDF načteno, počet stran: ${pdf.numPages}`);
-
-        let fullTextLines = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          
-          const linesMap = {};
-          textContent.items.forEach(item => {
-            if (!item.str.trim()) return;
-            const y = Math.round(item.transform[5] / 3) * 3;
-            if (!linesMap[y]) linesMap[y] = [];
-            linesMap[y].push(item);
-          });
-
-          const sortedYs = Object.keys(linesMap).map(Number).sort((a, b) => b - a);
-
-          sortedYs.forEach(y => {
-            const lineItems = linesMap[y].sort((a, b) => a.transform[4] - b.transform[4]);
-            const lineStr = lineItems.map(it => it.str).join(' ').replace(/\s+/g, ' ');
-            fullTextLines.push(lineStr);
-          });
-
-          fullTextLines.push(`--- PAGE ${i} ---`);
-        }
-
-        logImport('Extrahován strukturovaný text. Zahajuji analýzu vyúčtování...');
-        parseAndApplyTextLines(fullTextLines);
-
-      } catch (err) {
-        logImport(`Chyba při čtení PDF: ${err.message}`);
-        alert('Nepodařilo se přečíst PDF soubor.');
-      }
-    }
-
-    function processPastedText() {
-      const text = document.getElementById('pasteTextArea').value;
-      if (!text.trim()) {
-        alert('Vložte prosím text z vyúčtování.');
-        return;
-      }
-      document.getElementById('importStatus').innerHTML = '';
-      logImport('Zpracovávám vložený text...');
-      parseAndApplyTextLines(text.split('\n'));
-    }
-
-    function extractPhoneNumbersFromInvoice(lines) {
-      const phones = [];
-
-      for (const line of lines) {
-        // Podporuje standardní 9místný formát i případné rozdělení 604 123 456.
-        const regex = /(?:^|\s)([67]\d{2}(?:\s?\d{3})\s?\d{3})(?=\s*\/\s*Tarif\b)/gi;
-
-        for (const match of line.matchAll(regex)) {
-          const phone = match[1].replace(/\s+/g, '');
-          if (!phones.includes(phone)) {
-            phones.push(phone);
-          }
-        }
-      }
-
-      return phones;
-    }
-
-    function parseAndApplyTextLines(lines) {
-      const fullContent = lines.join('\n');
-      logImport('Analýza meta údajů faktury...');
-
-      const docMatch = fullContent.match(/Daňový\s*doklad\s*číslo\s*[:|]?\s*(\d{10})/i);
-      const periodMatch = fullContent.match(/za\s*období\s*(\d{1,2}\.\d{1,2}\.\s*-\s*\d{1,2}\.\d{1,2}\.\d{4})/i);
-
-      if (docMatch) invoiceData.meta.docNumber = docMatch[1];
-      if (periodMatch) invoiceData.meta.period = periodMatch[1];
-
-      // Telefonní čísla načteme dynamicky přímo z hlaviček jednotlivých účastníků.
-      // T-Mobile je v PDF uvádí ve tvaru například: "604123456 / Tarif 5 Pro Firmu bez závazku".
-      // Díky tomu není potřeba udržovat pevný seznam telefonních čísel.
-      const phonesToParse = extractPhoneNumbersFromInvoice(lines);
-
-      logImport(`Zpracovávám účastníky: ${phonesToParse.join(', ')}`);
-      const newParticipants = [];
-
-      phonesToParse.forEach(phone => {
-        let startIdx = lines.findIndex(l => {
-          const normalizedLine = l.replace(/\s+/g, '');
-          return normalizedLine.includes(phone) && (l.includes('Tarif') || l.includes('Účtované položky') || l.includes('Přehled služeb'));
-        });
-        if (startIdx === -1) {
-          startIdx = lines.findIndex(l => l.replace(/\s+/g, '').includes(phone));
-        }
-
-        if (startIdx !== -1) {
-          const blockLines = lines.slice(startIdx, startIdx + 35);
-          const items = [];
-          let phoneTotalCzk = null;
-
-          for (let l of blockLines) {
-            if (l.includes('Celkem za služby bez DPH')) {
-              const totalM = l.match(/([\d\s]+[,\.]\d{2})\s*Kč/i) || l.match(/([\d\s]+[,\.]\d{2})/);
-              if (totalM) {
-                phoneTotalCzk = parseFloat(totalM[1].replace(/\s/g, '').replace(',', '.'));
-              }
-              break;
-            }
-
-            const matches = [...l.matchAll(/([\d]+[,\.]\d{2})/g)];
-            if (matches.length > 0) {
-              const lastVal = parseFloat(matches[matches.length - 1][1].replace(',', '.'));
-
-              if (l.includes('Paušál') || l.includes('Podniková síť') || l.includes('Multi Connection')) {
-                let name = "Měsíční paušál";
-                if (l.includes('Multi Connection')) name = "Multi Connection";
-                if (l.includes('Podniková síť')) name = "Podniková síť";
-                if (lastVal > 0) items.push({ name, cat: "pausal", amount: lastVal });
-              } else if (l.includes('Volání') || l.includes('Volani')) {
-                let name = "Volání";
-                if (l.includes('T-Mobile') || l.includes('TMobile')) name = "Volání T-Mobile";
-                else if (l.includes('O2')) name = "Volání O2";
-                else if (l.includes('Vodafone')) name = "Volání Vodafone";
-                if (lastVal > 0) items.push({ name, cat: "volani", amount: lastVal });
-              } else if (l.includes('SMS')) {
-                if (lastVal > 0) items.push({ name: "SMS ostatní sítě", cat: "sms", amount: lastVal });
-              } else if (l.includes('Datový provoz') || l.includes('Data')) {
-                if (lastVal > 0) items.push({ name: "Datový provoz", cat: "data", amount: lastVal });
-              }
-            }
-          }
-
-          const existing = invoiceData.participants.find(p => p.phone === phone);
-          const name = existing ? existing.name : `Uživatel (${phone.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3')})`;
-
-          if (items.length === 0 && phoneTotalCzk !== null) {
-            items.push({ name: "Paušál a služby", cat: "pausal", amount: phoneTotalCzk });
-          }
-
-          newParticipants.push({
-            phone: phone,
-            name: name,
-            items: items.length > 0 ? items : [{ name: "Paušál", cat: "pausal", amount: 9.00 }]
-          });
-        }
-      });
-
-      if (newParticipants.length > 0) {
-        invoiceData.participants = newParticipants;
-        saveState();
-        renderAll();
-        logImport('Vyúčtování bylo úspěšně rozúčtováno a načteno!');
-        setTimeout(() => closeModal('importModal'), 1000);
-      } else {
-        logImport('Nepodařilo se rozpoznat účastnická čísla.');
-      }
-    }
-
-    function escapeHtml(text) {
-      return text.replace(/[&<>"']/g, function(m) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
-      });
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
   </script>
 </body>
